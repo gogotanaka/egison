@@ -32,9 +32,8 @@ data EgisonTopExpr =
     Define String EgisonExpr
   | Test EgisonExpr
   | Execute [String]
-    -- temporary : we will replace load to import and export
-  | LoadFile String
-  | Load String
+  | Export (Maybe [String])
+  | Import String (Maybe [String])
  deriving (Show)
 
 data EgisonExpr =
@@ -259,6 +258,9 @@ fromPrimitiveValue val = throwError $ TypeMismatch "primitive value" val
 type Var = String
 type Env = [HashMap Var ObjectRef]
 type Binding = (Var, ObjectRef)
+
+type ModuleDef = HashMap Var ObjectRef
+type ModuleEnv = HashMap Var ModuleDef
 
 nullEnv :: Env
 nullEnv = []

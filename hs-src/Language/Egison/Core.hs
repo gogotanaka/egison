@@ -29,43 +29,71 @@ import Language.Egison.Parser
 import Language.Egison.Desugar
 import Paths_egison (getDataFileName)
 
+coreLibraries :: [String]
+coreLibraries = ["base", "collection", "number", "pattern"]
+
+importModule :: Env -> ModuleEnv -> (String, Maybe [String]) -> EgisonM Env
+importModule env moduleEnv modname imports =
+  case HashMap.lookup modname moduleEnv of
+    Nothing -> throwError $ strMsg ("undefined module: " ++ modname)
+    Just mod ->
+      (: env) <$> maybe mod (\names -> HashMap.filterWithKey (flip elem names) mod) imports'
+
+loadModule :: ModuleEnv -> String -> EgisonM ModuleEnv
+loadModule moduleEnv name =
+  file <- searchModuleFile name
+  exprs <- liftIO (readFile file) >>= readTopExprs
+  (exports, imports, bindings, rest) <- collectDefs Nothing [] [] []
+  env <- primitiveEnv 
+  env' <- foldM (flip importModule moduleEnv) env (initialImports ++ imports)
+  env'' <- recursiveBind env bindings
+  forM_ rest $ evalTopExpr moduleEnv env''
+  let exports' = fromMaybe (map fst bindings) exports
+  mod <- HashMap.fromList . zip exports <$> mapM (newThunk env'' . VarExpr) exports'
+  HashMap.insert name mod moduleEnv
+ where
+  initialImports = zip coreLibraries $ repeat Nothing
+  collectDefs (expr:exprs) exports imports bindings rest =
+    case expr of
+      Define name expr -> collectDefs export imports ((name, expr) : bindings) rest
+      Export exports' -> collectDefs ((++) <$> exports <*> exports') imports bindings rest
+      Import name imports' -> collectDefs exports ((name, imports') : imports) bindings rest
+      _ -> collectDefs exports imports bindings (expr : rest)
+  collectDefs [] exports imports bindings rest = (exports, imports, bindings, reverse rest)
+
+searchModuleFile :: String -> EgisonM FilePath
+searchModuleFile name = do
+  dataDir <- liftIO $ getDataDir
+  let libraryPaths = [dataDir, dataDir ++ "/core"]
+  result <- liftIO $ foldr searchFile (return Nothing) libraryPaths 
+  maybe (throwError $ strMsg ("could not find module: " ++ name)) return result
+ where
+  searchFile dir cont = do
+    let file = dir ++ "/" ++ name ++ ".egi"
+    doesExist <- doesFileExist file
+    if doesExist then return file else cont
+
 --
 -- Evaluator
 --
 
-evalTopExprs :: Env -> [EgisonTopExpr] -> EgisonM Env
-evalTopExprs env exprs = do
-  (bindings, rest) <- collectDefs exprs [] []
-  env <- recursiveBind env bindings
-  forM_ rest $ evalTopExpr env
-  return env
- where
-  collectDefs (expr:exprs) bindings rest =
-    case expr of
-      Define name expr -> collectDefs exprs ((name, expr) : bindings) rest
-      Load file -> do
-        exprs' <- loadLibraryFile file
-        collectDefs (exprs' ++ exprs) bindings rest
-      LoadFile file -> do
-        exprs' <- loadFile file
-        collectDefs (exprs' ++ exprs) bindings rest
-      _ -> collectDefs exprs bindings (expr : rest)
-  collectDefs [] bindings rest = return (bindings, reverse rest)
-
-evalTopExpr :: Env -> EgisonTopExpr -> EgisonM Env
-evalTopExpr env (Define name expr) = recursiveBind env [(name, expr)]
-evalTopExpr env (Test expr) = do
+evalTopExpr :: Env -> ModuleEnv -> EgisonTopExpr -> EgisonM (Env, ModuleEnv)
+evalTopExpr env moduleEnv (Define name expr) =
+  (, moduleEnv) <$> recursiveBind env [(name, expr)]
+evalTopExpr env moduleEnv (Test expr) = do
   val <- evalExpr' env expr
   liftIO $ print val
-  return env
-evalTopExpr env (Execute argv) = do
+  return (env, moduleEnv)
+evalTopExpr env moduleEnv (Execute argv) = do
   main <- refVar env "main" >>= evalRef
   io <- applyFunc main $ Value $ Collection $ Sq.fromList $ map String argv
   case io of
-    Value (IOFunc m) -> m >> return env
+    Value (IOFunc m) -> m >> return (env, moduleEnv)
     _ -> throwError $ TypeMismatch "io" io
-evalTopExpr env (Load file) = loadLibraryFile file >>= evalTopExprs env
-evalTopExpr env (LoadFile file) = loadFile file >>= evalTopExprs env
+evalTopExpr env moduleEnv (Import modname imports) =
+  (, env) <$> importModule env moduleEnv (modname, imports)
+evalTopExpr env moduleEnv (Export _) =
+  throwError $ strMsg "cannot use export expression at toplevel environment"
 
 evalExpr :: Env -> EgisonExpr -> EgisonM WHNFData
 evalExpr _ (CharExpr c) = return . Value $ Char c

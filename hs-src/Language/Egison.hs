@@ -73,12 +73,6 @@ fromEgisonM = modifyCounter . runEgisonM
 
 loadPrimitives :: Env -> IO Env
 loadPrimitives env = (++) <$> return env <*> primitiveEnv
-  
-loadEgisonFile :: Env -> FilePath -> IO (Either EgisonError Env)
-loadEgisonFile env path = modifyCounter $ runEgisonM $ loadFile path >>= evalTopExprs env
-
-loadEgisonLibrary :: Env -> FilePath -> IO (Either EgisonError Env)
-loadEgisonLibrary env path = modifyCounter $ runEgisonM $ loadLibraryFile path >>= evalTopExprs env
 
 evalEgisonExpr :: Env -> EgisonExpr -> IO (Either EgisonError EgisonValue)
 evalEgisonExpr env expr = modifyCounter $ runEgisonM $ evalExpr' env expr
@@ -86,11 +80,5 @@ evalEgisonExpr env expr = modifyCounter $ runEgisonM $ evalExpr' env expr
 evalEgisonTopExpr :: Env -> EgisonTopExpr -> IO (Either EgisonError Env)
 evalEgisonTopExpr env exprs = modifyCounter $ runEgisonM $ evalTopExpr env exprs
 
-evalEgisonTopExprs :: Env -> [EgisonTopExpr] -> IO (Either EgisonError Env)
-evalEgisonTopExprs env exprs = modifyCounter $ runEgisonM $ evalTopExprs env exprs
-
 runEgisonTopExpr :: Env -> String -> IO (Either EgisonError Env)
 runEgisonTopExpr env input = modifyCounter $ runEgisonM $ readTopExpr input >>= evalTopExpr env
-
-runEgisonTopExprs :: Env -> String -> IO (Either EgisonError Env)
-runEgisonTopExprs env input = modifyCounter $ runEgisonM $ readTopExprs input >>= evalTopExprs env

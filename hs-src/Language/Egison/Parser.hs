@@ -56,21 +56,6 @@ readExprs = liftEgisonM . runDesugarM . either throwError (mapM desugar) . parse
 readExpr :: String -> EgisonM EgisonExpr
 readExpr = liftEgisonM . runDesugarM . either throwError desugar . parseExpr
 
-loadFile :: FilePath -> EgisonM [EgisonTopExpr]
-loadFile file = do
-  doesExist <- liftIO $ doesFileExist file
-  unless doesExist $ throwError $ strMsg ("file does not exist: " ++ file)
-  input <- liftIO $ readFile file
-  exprs <- readTopExprs input
-  concat <$> mapM  recursiveLoad exprs
- where
-  recursiveLoad (Load file) = loadLibraryFile file
-  recursiveLoad (LoadFile file) = loadFile file
-  recursiveLoad expr = return [expr]
-
-loadLibraryFile :: FilePath -> EgisonM [EgisonTopExpr]
-loadLibraryFile file = liftIO (getDataFileName file) >>= loadFile
-
 parseTopExprs :: String -> Either EgisonError [EgisonTopExpr]
 parseTopExprs = doParse $ whiteSpace >> endBy topExpr whiteSpace
 
@@ -91,8 +76,8 @@ topExpr :: Parser EgisonTopExpr
 topExpr = parens (defineExpr
               <|> testExpr
               <|> executeExpr
-              <|> loadFileExpr
-              <|> loadExpr)
+              <|> exportExpr
+              <|> importExpr)
       <?> "top-level expression"
 
 defineExpr :: Parser EgisonTopExpr
@@ -104,11 +89,11 @@ testExpr = keywordTest >> Test <$> expr
 executeExpr :: Parser EgisonTopExpr
 executeExpr = keywordExecute >> Execute <$> sepEndBy stringLiteral whiteSpace
 
-loadFileExpr :: Parser EgisonTopExpr
-loadFileExpr = keywordLoadFile >> LoadFile <$> stringLiteral
+exportExpr :: Parser EgisonTopExpr
+exportExpr = keywordExport >> Export <$> optionMaybe (braces $ many1 ident)
 
-loadExpr :: Parser EgisonTopExpr
-loadExpr = keywordLoad >> Load <$> stringLiteral
+importExpr :: Parser EgisonTopExpr
+importExpr = keywordImport >> Import <$> ident <*> optionMaybe (braces $ many1 ident)
 
 exprs :: Parser [EgisonExpr]
 exprs = endBy expr whiteSpace
@@ -430,6 +415,8 @@ reservedKeywords =
   [ "define"
   , "test"
   , "execute"
+  , "export"
+  , "import"
   , "load-file"
   , "load"
   , "if"
@@ -472,6 +459,8 @@ reservedOp = P.reservedOp lexer
 keywordDefine               = reserved "define"
 keywordTest                 = reserved "test"
 keywordExecute              = reserved "execute"
+keywordExport               = reserved "export"
+keywordImport               = reserved "import"
 keywordLoadFile             = reserved "load-file"
 keywordLoad                 = reserved "load"
 keywordIf                   = reserved "if"
