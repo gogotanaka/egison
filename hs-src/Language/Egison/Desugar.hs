@@ -227,6 +227,8 @@ desugarPattern' (LetPat binds pattern) = do
   LetPat <$> desugarBindings binds <*> desugarPattern' pattern
 desugarPattern' (OrPat patterns)  = 
   OrPat <$> mapM desugarPattern' patterns
+desugarPattern' (OrderedOrPat patterns) =
+  OrderedOrPat <$> mapM desugarPattern' patterns
 desugarPattern' pattern = return pattern
 
 

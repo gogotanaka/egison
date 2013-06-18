@@ -412,6 +412,14 @@ processMState' (MState env loops bindings ((MAtom pattern target matcher):trees)
     OrPat patterns ->
       return $ fromList $ flip map patterns $ \pattern ->
         MState env loops bindings (MAtom pattern target matcher : trees)
+    OrderedOrPat (pattern:patterns) -> do
+      result <- processMStates [msingleton (MState env loops bindings (MAtom pattern target matcher : trees))]
+      case result of
+        MNil -> do
+          processMState (MState env loops bindings (MAtom (OrderedOrPat patterns) target matcher : trees))
+        _    -> 
+          -- パターンマッチの最終結果までマッチングを進めるようなprocessMState''が必要
+    OrderedOrPat [] -> return $ MNil
     NotPat pattern -> throwError $ strMsg "should not reach here (cut pattern)"
     CutPat pattern -> -- TEMPORARY ignoring cut patterns
       return $ msingleton (MState env loops bindings ((MAtom pattern target matcher):trees))
