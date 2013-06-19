@@ -1,4 +1,3 @@
-
 module Language.Egison
        ( module Language.Egison.Types
        , module Language.Egison.Parser
@@ -57,8 +56,8 @@ defaultEnv = do
     env' <- importCoreLibraries env moduleEnv
     return (env', moduleEnv)
   case result of
-    Left e -> do
-      print e
+    Left err -> do
+      print err
       putStrLn "failed to load the core libraries"
       return (env, nullModuleEnv)
     Right r -> return r

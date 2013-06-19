@@ -40,20 +40,27 @@ coreLibraries = ["base", "collection", "number", "pattern"]
 
 importCoreLibraries :: Env -> ModuleEnv -> EgisonM Env
 importCoreLibraries env moduleEnv =
-  foldM (flip importModule moduleEnv) env $ map (, Nothing) coreLibraries
+  foldM ((liftM fst .) . flip importModule moduleEnv) env $ map (, Nothing) coreLibraries
 
-importModule :: Env -> ModuleEnv -> ImportSpec -> EgisonM Env
+importModule :: Env -> ModuleEnv -> ImportSpec -> EgisonM (Env, ModuleEnv)
 importModule env moduleEnv (name, imports) = do
-  defs <- maybe (throwError $ strMsg ("undefined module: " ++ name))
-                return (HashMap.lookup name moduleEnv)
-  case imports of
-    Nothing -> return (defs : env)
-    Just imports' -> do
-      defs' <- forM imports' $ \sig -> do
-        maybe (throwError $ strMsg ("undefined sinature: " ++ name ++ "." ++ sig))
-              (return . (sig,))
-              (HashMap.lookup sig defs)
-      return (HashMap.fromList defs' : env)
+  case HashMap.lookup name moduleEnv of
+    Nothing -> do
+      moduleEnv' <- loadModule env moduleEnv name -- FIXME: first argument must be primitiveEnv
+      let moduleDef = fromJust $ HashMap.lookup name moduleEnv'
+      env' <- maybe (return (moduleDef:env)) (importSignatures env moduleDef) imports
+      return (env', moduleEnv')
+    Just moduleDef -> do
+      env' <- maybe (return (moduleDef:env)) (importSignatures env moduleDef) imports
+      return (env', moduleEnv)
+ where
+  importSignatures :: Env -> ModuleDef -> [String] -> EgisonM Env
+  importSignatures env moduleDef sigs = do
+    moduleDef' <- forM sigs $ \sig ->
+      maybe (throwError $ strMsg ("undefined sinature: " ++ name ++ "." ++ sig))
+            (return . (sig,))
+            (HashMap.lookup sig moduleDef)
+    return (HashMap.fromList moduleDef' : env)
 
 loadCoreLibraries :: Env -> ModuleEnv -> EgisonM ModuleEnv
 loadCoreLibraries primitiveEnv moduleEnv =
@@ -67,12 +74,13 @@ loadModule' primitiveEnv moduleEnv libraries name = do
   file <- searchModuleFile name
   exprs <- liftIO (readFile file) >>= readTopExprs
   let (exports, imports, bindings, rest) = foldr collectDefs (Nothing, [], [], []) exprs
-  env <- foldM (flip importModule moduleEnv) primitiveEnv (initialImports ++ imports)
+      imports' = initialImports ++ imports
+  (env, moduleEnv') <- foldM (uncurry importModule) (primitiveEnv, moduleEnv) imports' 
   env' <- recursiveBind env bindings
-  forM_ rest $ evalTopExpr env' moduleEnv
+  forM_ rest $ evalTopExpr env' moduleEnv'
   let exports' = fromMaybe (map fst bindings) exports
   defs <- HashMap.fromList . zip exports' <$> mapM (newThunk env' . VarExpr) exports'
-  return $ HashMap.insert name defs moduleEnv
+  return $ HashMap.insert name defs moduleEnv'
  where
   initialImports = map (, Nothing) libraries
   collectDefs expr (exports, imports, bindings, rest) =
@@ -85,7 +93,7 @@ loadModule' primitiveEnv moduleEnv libraries name = do
 searchModuleFile :: String -> EgisonM FilePath
 searchModuleFile name = do
   libraryDir <- liftIO $ (++ "/lib") <$> getDataDir
-  let libraryPaths = [".", libraryDir, libraryDir ++ "/core"]
+  let libraryPaths = [libraryDir ++ "/core", libraryDir, "."]
   result <- liftIO $ foldr searchFile (return Nothing) libraryPaths 
   maybe (throwError $ strMsg ("could not find module: " ++ name)) return result
  where
@@ -112,7 +120,7 @@ evalTopExpr env moduleEnv (Execute argv) = do
     Value (IOFunc m) -> m >> return (env, moduleEnv)
     _ -> throwError $ TypeMismatch "io" io
 evalTopExpr env moduleEnv (Import name imports) =
-  (, moduleEnv) <$> importModule env moduleEnv (name, imports)
+  importModule env moduleEnv (name, imports)
 evalTopExpr env moduleEnv (Export _) =
   throwError $ strMsg "cannot use export expression at toplevel environment"
 
