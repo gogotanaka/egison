@@ -259,6 +259,7 @@ type Var = String
 type Env = [HashMap Var ObjectRef]
 type Binding = (Var, ObjectRef)
 
+type ImportSpec = (String, Maybe [String])
 type ModuleDef = HashMap Var ObjectRef
 type ModuleEnv = HashMap Var ModuleDef
 
@@ -271,6 +272,9 @@ extendEnv env = (: env) . HashMap.fromList
 refVar :: Env -> Var -> EgisonM ObjectRef
 refVar env var = maybe (throwError $ UnboundVariable var) return
                        (msum $ map (HashMap.lookup var) env)
+
+nullModuleEnv :: ModuleEnv
+nullModuleEnv = HashMap.empty
 
 --
 -- Pattern Match

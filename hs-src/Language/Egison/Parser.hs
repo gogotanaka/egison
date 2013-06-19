@@ -4,8 +4,6 @@ module Language.Egison.Parser
        , readTopExpr
        , readExprs
        , readExpr
-       , loadFile
-       , loadLibraryFile
        , parseTopExprs
        , parseTopExpr
        , parseExprs

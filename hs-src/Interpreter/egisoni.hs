@@ -23,13 +23,14 @@ main = do args <- getArgs
           case opts of
             Options {optShowHelp = True} -> printHelp
             Options {optShowVersion = True} -> printVersionNumber
-            Options {optPrompt = prompt, optShowBanner = bannerFlag} -> do
-                env <- primitiveEnv >>= loadLibraries
+            Options {optPrompt = prompt, optShowBanner = bannerFlag} ->
                 case nonOpts of
-                    [] -> when bannerFlag showBanner >> repl env prompt >> when bannerFlag showByebyeMessage
-                    (file:args) -> do
-                        result <- evalEgisonTopExprs env [LoadFile file, Execute args]
-                        either print (const $ return ()) result
+                    [] -> do
+                      when bannerFlag showBanner
+                      defaultEnv >>= flip repl prompt
+                      when bannerFlag showByebyeMessage
+                    (file:args) ->
+                        runEgisonFile file args >>= either print (const $ return ()) 
 
 data Options = Options {
     optShowVersion :: Bool,
@@ -90,7 +91,7 @@ showByebyeMessage :: IO ()
 showByebyeMessage = do
   putStrLn $ "Leaving Egison Interpreter."
 
-repl :: Env -> String -> IO ()
+repl :: (Env, ModuleEnv) -> String -> IO ()
 repl env prompt = do
   home <- getHomeDirectory
   liftIO (runInputT (settings home) $ loop env prompt "")
@@ -98,7 +99,7 @@ repl env prompt = do
     settings :: MonadIO m => FilePath -> Settings m
     settings home = defaultSettings { historyFile = Just (home </> ".egison_history") }
     
-    loop :: Env -> String -> String -> InputT IO ()
+    loop :: (Env, ModuleEnv) -> String -> String -> InputT IO ()
     loop env prompt' rest = do
       input <- getInputLine prompt'
       case input of
@@ -112,19 +113,17 @@ repl env prompt = do
             Left err | show err =~ "unexpected end of input" -> do
               loop env (take (length prompt) (repeat ' ')) $ newInput ++ "\n"
             Left err | show err =~ "expecting (top-level|\"define\")" -> do
-              result <- liftIO $ fromEgisonM (readExpr newInput) >>= either (return . Left) (evalEgisonExpr env)
+              result <- liftIO $ runEgisonTopExpr env ("(test " ++ newInput ++ ")")
               case result of
                 Left err | show err =~ "unexpected end of input" -> do
                   loop env (take (length prompt) (repeat ' ')) $ newInput ++ "\n"
                 Left err -> do
                   liftIO $ putStrLn $ show err
                   loop env prompt ""
-                Right val -> do
-                  liftIO $ putStrLn $ show val
-                  loop env prompt ""
+                Right env' -> do
+                  loop env' prompt ""
             Left err -> do
               liftIO $ putStrLn $ show err
               loop env prompt ""
             Right env' ->
               loop env' prompt ""
-    

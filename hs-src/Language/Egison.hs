@@ -6,15 +6,9 @@ module Language.Egison
        , version
        , counter --danger
        , fromEgisonM
-       , loadLibraries
-       , loadPrimitives
-       , loadEgisonFile
-       , loadEgisonLibrary
-       , evalEgisonExpr
-       , evalEgisonTopExpr
-       , evalEgisonTopExprs
+       , defaultEnv
+       , runEgisonFile
        , runEgisonTopExpr
-       , runEgisonTopExprs
        ) where
 
 import Control.Applicative ((<$>), (<*>))
@@ -24,6 +18,8 @@ import System.IO.Unsafe (unsafePerformIO)
 import Data.IORef
 import Data.Version
 import qualified Paths_egison as P
+
+import System.FilePath
 
 import Language.Egison.Types
 import Language.Egison.Parser
@@ -50,35 +46,32 @@ modifyCounter m = do
   updateCounter seed
   return result  
 
-loadLibraries :: Env -> IO Env
-loadLibraries env = do
-  seed <- readIORef counter
-  (result, seed') <- runFreshT seed $ runEgisonM $ foldM evalTopExpr env (map Load libraries)
-  writeIORef counter seed'
-  case result of
-    Left err -> do
-      print . show $ err
-      return env
-    Right env' -> 
-      return env'
-  where
-    libraries :: [String]
-    libraries = [ "lib/core/base.egi"
-                , "lib/core/collection.egi"
-                , "lib/core/number.egi"
-                , "lib/core/pattern.egi" ]
-
 fromEgisonM :: EgisonM a -> IO (Either EgisonError a)
 fromEgisonM = modifyCounter . runEgisonM
 
-loadPrimitives :: Env -> IO Env
-loadPrimitives env = (++) <$> return env <*> primitiveEnv
+defaultEnv :: IO (Env, ModuleEnv)
+defaultEnv = do
+  env <- primitiveEnv
+  result <- modifyCounter . runEgisonM $ do
+    moduleEnv <- loadCoreLibraries env nullModuleEnv
+    env' <- importCoreLibraries env moduleEnv
+    return (env', moduleEnv)
+  case result of
+    Left e -> do
+      print e
+      putStrLn "failed to load the core libraries"
+      return (env, nullModuleEnv)
+    Right r -> return r
 
-evalEgisonExpr :: Env -> EgisonExpr -> IO (Either EgisonError EgisonValue)
-evalEgisonExpr env expr = modifyCounter $ runEgisonM $ evalExpr' env expr
+runEgisonTopExpr :: (Env, ModuleEnv) -> String -> IO (Either EgisonError (Env, ModuleEnv))
+runEgisonTopExpr (env, moduleEnv) input =
+  modifyCounter $ runEgisonM $ readTopExpr input >>= evalTopExpr env moduleEnv
 
-evalEgisonTopExpr :: Env -> EgisonTopExpr -> IO (Either EgisonError Env)
-evalEgisonTopExpr env exprs = modifyCounter $ runEgisonM $ evalTopExpr env exprs
-
-runEgisonTopExpr :: Env -> String -> IO (Either EgisonError Env)
-runEgisonTopExpr env input = modifyCounter $ runEgisonM $ readTopExpr input >>= evalTopExpr env
+runEgisonFile :: FilePath -> [String] -> IO (Either EgisonError ())
+runEgisonFile file args = modifyCounter . runEgisonM $ do
+  let moduleName = dropExtension file
+  env <- liftIO primitiveEnv
+  moduleEnv <- loadCoreLibraries env nullModuleEnv
+  moduleEnv' <- loadModule env moduleEnv moduleName
+  evalTopExprs nullEnv moduleEnv' [(Import moduleName Nothing), (Execute args)]
+  return ()
