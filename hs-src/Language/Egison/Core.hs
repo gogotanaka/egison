@@ -57,7 +57,7 @@ importModule env moduleEnv (name, imports) = do
   importSignatures :: Env -> ModuleDef -> [String] -> EgisonM Env
   importSignatures env moduleDef sigs = do
     moduleDef' <- forM sigs $ \sig ->
-      maybe (throwError $ strMsg ("undefined sinature: " ++ name ++ "." ++ sig))
+      maybe (throwError $ strMsg ("undefined signature: " ++ name ++ "." ++ sig))
             (return . (sig,))
             (HashMap.lookup sig moduleDef)
     return (HashMap.fromList moduleDef' : env)
@@ -74,7 +74,7 @@ loadModule' primitiveEnv moduleEnv libraries name = do
   file <- searchModuleFile name
   exprs <- liftIO (readFile file) >>= readTopExprs
   let (exports, imports, bindings, rest) = foldr collectDefs (Nothing, [], [], []) exprs
-      imports' = initialImports ++ imports
+      imports' = filter (not . flip elem (map fst imports) . fst) initialImports ++ imports
   (env, moduleEnv') <- foldM (uncurry importModule) (primitiveEnv, moduleEnv) imports' 
   env' <- recursiveBind env bindings
   forM_ rest $ evalTopExpr env' moduleEnv'
@@ -93,7 +93,7 @@ loadModule' primitiveEnv moduleEnv libraries name = do
 searchModuleFile :: String -> EgisonM FilePath
 searchModuleFile name = do
   libraryDir <- liftIO $ (++ "/lib") <$> getDataDir
-  let libraryPaths = [libraryDir ++ "/core", libraryDir, "."]
+  let libraryPaths = [libraryDir ++ "/core", libraryDir, ".", "./lib"]
   result <- liftIO $ foldr searchFile (return Nothing) libraryPaths 
   maybe (throwError $ strMsg ("could not find module: " ++ name)) return result
  where
