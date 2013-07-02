@@ -346,28 +346,62 @@ processMStates streams = do
   processMStates' (MCons (MState _ _ bindings []) states) = (Just bindings, [states])
   processMStates' (MCons state states) = (Nothing, [processMState state, states])
 
+--    OrderedOrPat (pattern:patterns) -> do
+--      result <- processMStates [msingleton (MState env loops bindings (MAtom pattern target matcher : trees))]
+--      case result of
+--        MNil -> return $ msingleton $ MState env loops bindings (MAtom (OrderedOrPat patterns) target matcher : trees)
+--        _ -> mmap (\newBindings -> return $ MState env loops (newBindings ++ bindings) trees)
+--                  result
+--    OrderedOrPat [] -> return $ MNil
+
 processMState :: MatchingState -> EgisonM (MList EgisonM MatchingState)
-processMState state =
-  if isNotPat state
+processMState mState =
+  if isNotPat mState
     then do
-      let (state1, state2) = splitMState state
-      result <- processMStates [msingleton state1]
+      let (mState1, mState2) = splitMStateForNotPat mState
+      result <- processMStates [msingleton mState1]
       case result of
-        MNil -> return $ msingleton state2
+        MNil -> return $ msingleton mState2
         _ -> return MNil
-    else processMState' state
+    else case isOrderedOrPat mState of
+           Nothing -> processMState' mState
+           Just False -> return MNil
+           Just True -> do
+             let (mState1, mState2, mState3) = splitMStateForOrderedOrPat mState
+             result <- processMStates [msingleton mState1]
+             case result of
+               MNil -> return $ msingleton mState3
+               _ -> return $ msingleton mState2 -- TEMPORARY, this implementation discards the bindings in the ordered-or-pattern
  where
   isNotPat :: MatchingState -> Bool
   isNotPat (MState _ _ _ ((MAtom (NotPat _) _ _) : _)) = True
-  isNotPat (MState _ _ _ ((MNode _ state) : _)) = isNotPat state
+  isNotPat (MState _ _ _ ((MNode _ mState) : _)) = isNotPat mState
   isNotPat _ = False
 
-  splitMState :: MatchingState -> (MatchingState, MatchingState)
-  splitMState (MState env loops bindings ((MAtom (NotPat pattern) target matcher) : trees)) =
+  splitMStateForNotPat :: MatchingState -> (MatchingState, MatchingState)
+  splitMStateForNotPat (MState env loops bindings ((MAtom (NotPat pattern) target matcher) : trees)) =
     (MState env loops bindings [MAtom pattern target matcher], MState env loops bindings trees)
-  splitMState (MState env loops bindings ((MNode penv state) : trees)) =
-    let (state1, state2) = splitMState state
-    in (MState env loops bindings [MNode penv state1], MState env loops bindings (MNode penv state2 : trees)) 
+  splitMStateForNotPat (MState env loops bindings ((MNode penv mState) : trees)) =
+    let (mState1, mState2) = splitMStateForNotPat mState
+    in (MState env loops bindings [MNode penv mState1], MState env loops bindings (MNode penv mState2 : trees)) 
+  
+  isOrderedOrPat :: MatchingState -> Maybe Bool
+  isOrderedOrPat (MState _ _ _ ((MAtom (OrderedOrPat []) _ _) : _)) = Just False
+  isOrderedOrPat (MState _ _ _ ((MAtom (OrderedOrPat _) _ _) : _)) = Just True
+  isOrderedOrPat (MState _ _ _ ((MNode _ mState) : _)) = isOrderedOrPat mState
+  isOrderedOrPat _ = Nothing
+
+  splitMStateForOrderedOrPat :: MatchingState -> (MatchingState, MatchingState, MatchingState)
+  splitMStateForOrderedOrPat (MState env loops bindings ((MAtom (OrderedOrPat (pattern:patterns)) target matcher) : trees)) =
+    (MState env loops bindings [MAtom pattern target matcher],
+     MState env loops bindings ((MAtom pattern target matcher):trees),
+     MState env loops bindings ((MAtom (OrderedOrPat patterns) target matcher) : trees))
+  splitMStateForOrderedOrPat (MState env loops bindings ((MNode penv mState) : trees)) =
+    let (mState1, mState2, mState3) = splitMStateForOrderedOrPat mState
+    in (MState env loops bindings [MNode penv mState1],
+        MState env loops bindings (MNode penv mState2 : trees),
+        MState env loops bindings (MNode penv mState3 : trees))
+  
 
 processMState' :: MatchingState -> EgisonM (MList EgisonM MatchingState)
 processMState' state@(MState _ _ _ []) = throwError $ strMsg "should not reach here"
@@ -412,15 +446,7 @@ processMState' (MState env loops bindings ((MAtom pattern target matcher):trees)
     OrPat patterns ->
       return $ fromList $ flip map patterns $ \pattern ->
         MState env loops bindings (MAtom pattern target matcher : trees)
-    OrderedOrPat (pattern:patterns) -> do
-      result <- processMStates [msingleton (MState env loops bindings (MAtom pattern target matcher : trees))]
-      case result of
-        MNil -> do
-          processMState (MState env loops bindings (MAtom (OrderedOrPat patterns) target matcher : trees))
-        _    -> 
-          -- パターンマッチの最終結果までマッチングを進めるようなprocessMState''が必要
-    OrderedOrPat [] -> return $ MNil
-    NotPat pattern -> throwError $ strMsg "should not reach here (cut pattern)"
+    NotPat pattern -> throwError $ strMsg "should not reach here (not pattern)"
     CutPat pattern -> -- TEMPORARY ignoring cut patterns
       return $ msingleton (MState env loops bindings ((MAtom pattern target matcher):trees))
     PredPat pred -> do
