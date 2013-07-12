@@ -36,7 +36,7 @@ import Paths_egison (getDataDir)
 --
 
 coreLibraries :: [String]
-coreLibraries = ["base", "collection", "number", "pattern"]
+coreLibraries = ["core/base", "core/collection", "core/number", "core/pattern"]
 
 importCoreLibraries :: Env -> ModuleEnv -> EgisonM Env
 importCoreLibraries env moduleEnv =
@@ -93,7 +93,7 @@ loadModule' primitiveEnv moduleEnv libraries name = do
 searchModuleFile :: String -> EgisonM FilePath
 searchModuleFile name = do
   libraryDir <- liftIO $ (++ "/lib") <$> getDataDir
-  let libraryPaths = [libraryDir ++ "/core", libraryDir, ".", "./lib"]
+  let libraryPaths = [libraryDir, ".", "./lib"]
   result <- liftIO $ foldr searchFile (return Nothing) libraryPaths 
   maybe (throwError $ strMsg ("could not find module: " ++ name)) return result
  where
