@@ -158,6 +158,15 @@
            ((occurrence a) xs))))
 |#
 
+(define $one-of
+  (lambda [$pred $xs]
+    (match xs (list something)
+      {[<nil> #f]
+       [<cons $x $rs>
+        (if (pred x)
+            #t
+            (one-of pred rs))]})))
+
 (define $size
   (lambda [$xs]
     (match xs (list something)
@@ -196,6 +205,15 @@
         (match xs (list something)
           {[<cons $x $xs> {x @(take (- n 1) xs)}]
            [<nil> {}]}))))
+
+(define $while
+  (lambda [$pred $xs]
+    (match xs (list something)
+      {[<nil> {}]
+       [<cons $x $rs>
+        (if (pred x)
+            {x @(while pred rs)}
+            {})]})))
 
 (define $drop
   (lambda [$n $xs]
