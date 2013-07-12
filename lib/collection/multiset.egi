@@ -1,0 +1,23 @@
+(define $count
+  (lambda [$a]
+    (lambda [$xs $x]
+      (length (match-all xs (list a)
+                [<join _ <cons ,x _>> x])))))
+
+(define $join
+  (lambda [$a]
+    (lambda [$xs $ys]
+      (match ys (list something)
+        {[<nil> xs]
+         [<cons $y $rs> ((union a) ((add a) xs y) rs)]}))))
+
+(define $subcollection?
+  (lambda [$a]
+    (lambda [$xs $ys]
+      (match xs (list something)
+        {[<nil> #t]
+         [<cons $x $rest>
+          (if ((member? a) x ys)
+              ((subcollection? a) rest ys)
+              #f)]}))))
+

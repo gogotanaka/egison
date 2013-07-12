@@ -1,7 +1,3 @@
-;;
-;; Base.egi
-;;
-
 (define $bool
   (matcher
     {[,$val []
